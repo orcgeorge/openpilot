@@ -24,6 +24,8 @@ OnroadWindow::OnroadWindow(QWidget *parent) : QWidget(parent) {
   road_view_layout->addWidget(nvg);
   hud = new OnroadHud(this);
   road_view_layout->addWidget(hud);
+  lane = new Drawlane(this);
+  road_view_layout->addWidget(lane);
 
   QWidget * split_wrapper = new QWidget;
   split = new QHBoxLayout(split_wrapper);
@@ -43,6 +45,11 @@ OnroadWindow::OnroadWindow(QWidget *parent) : QWidget(parent) {
   setAttribute(Qt::WA_OpaquePaintEvent);
   QObject::connect(uiState(), &UIState::uiUpdate, this, &OnroadWindow::updateState);
   QObject::connect(uiState(), &UIState::offroadTransition, this, &OnroadWindow::offroadTransition);
+  QObject::connect(nvg, &NvgWindow::drawLaneSignal, lane, &Drawlane::drawLaneUpdate);
+}
+
+void Drawlane::drawLaneUpdate(const UIState &s){
+  Drawlane::update();
 }
 
 void OnroadWindow::updateState(const UIState &s) {
@@ -54,7 +61,7 @@ void OnroadWindow::updateState(const UIState &s) {
     } else if (alert.type == "controlsUnresponsivePermanent") {
       bgColor = bg_colors[STATUS_DISENGAGED];
     }
-    // alerts->updateAlert(alert, bgColor);
+//     alerts->updateAlert(alert, bgColor);
   }
 
   hud->updateState(s);
@@ -101,6 +108,7 @@ void OnroadWindow::offroadTransition(bool offroad) {
 }
 
 void OnroadWindow::paintEvent(QPaintEvent *event) {
+  LOGW("draw the onroadwindow");
   QPainter p(this);
   p.fillRect(rect(), QColor(bg.red(), bg.green(), bg.blue(), 255));
 }
@@ -117,6 +125,7 @@ void OnroadAlerts::updateAlert(const Alert &a, const QColor &color) {
 }
 
 void OnroadAlerts::paintEvent(QPaintEvent *event) {
+  LOGW("draw the alerts");
   if (alert.size == cereal::ControlsState::AlertSize::NONE) {
     return;
   }
@@ -203,6 +212,7 @@ void OnroadHud::updateState(const UIState &s) {
 }
 
 void OnroadHud::paintEvent(QPaintEvent *event) {
+  LOGW("%s :paint widgit",__func__);
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing);
 
@@ -248,6 +258,28 @@ void OnroadHud::paintEvent(QPaintEvent *event) {
   // }
 }
 
+void Drawlane::paintEvent(QPaintEvent *event){
+
+  LOGW("draw the lane lines ");
+
+  UIState *s = uiState();
+
+  QPainter painter(this);
+  painter.setRenderHint(QPainter::Antialiasing);
+  painter.setPen(Qt::NoPen);
+
+  drawLaneLines(painter, s);
+
+//  if (s->scene.longitudinal_control) {
+    auto leads = (*s->sm)["modelV2"].getModelV2().getLeadsV3();
+    if (leads[0].getProb() > .5) {
+      drawLead(painter, leads[0], s->scene.lead_vertices[0]);
+    }
+    if (leads[1].getProb() > .5 && (std::abs(leads[1].getX()[0] - leads[0].getX()[0]) > 3.0)) {
+      drawLead(painter, leads[1], s->scene.lead_vertices[1]);
+    }
+//  } 
+}
 void OnroadHud::drawText(QPainter &p, int x, int y, const QString &text, int alpha) {
   QFontMetrics fm(p.font());
   QRect init_rect = fm.boundingRect(text);
@@ -270,6 +302,9 @@ void OnroadHud::drawIcon(QPainter &p, int x, int y, QPixmap &img, QBrush bg, flo
 
 NvgWindow::NvgWindow(VisionStreamType type, QWidget* parent) : fps_filter(UI_FREQ, 3, 1. / UI_FREQ), CameraViewWidget("camerad", type, true, parent) {
 
+}
+
+Drawlane::Drawlane(QWidget *parent) : QWidget(parent) {
 }
 
 void NvgWindow::initializeGL() {
@@ -304,7 +339,7 @@ void NvgWindow::updateFrameMat(int w, int h) {
       .translate(-intrinsic_matrix.v[2], -intrinsic_matrix.v[5]);
 }
 
-void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
+void Drawlane::drawLaneLines(QPainter &painter, const UIState *s) {
   const UIScene &scene = s->scene;
   // lanelines
   for (int i = 0; i < std::size(scene.lane_line_vertices); ++i) {
@@ -342,7 +377,7 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
   painter.drawPolygon(scene.track_vertices.v, scene.track_vertices.cnt);
 }
 
-void NvgWindow::drawLead(QPainter &painter, const cereal::ModelDataV2::LeadDataV3::Reader &lead_data, const QPointF &vd) {
+void Drawlane::drawLead(QPainter &painter, const cereal::ModelDataV2::LeadDataV3::Reader &lead_data, const QPointF &vd) {
   const float speedBuff = 10.;
   const float leadBuff = 40.;
   const float d_rel = lead_data.getX()[0];
@@ -379,22 +414,23 @@ void NvgWindow::paintGL() {
 
   UIState *s = uiState();
   if (s->worldObjectsVisible()) {
-    QPainter painter(this);
-    painter.setRenderHint(QPainter::Antialiasing);
-    painter.setPen(Qt::NoPen);
+    emit drawLaneSignal(s);
+  //   QPainter painter(this);
+  //   painter.setRenderHint(QPainter::Antialiasing);
+  //   painter.setPen(Qt::NoPen);
 
-    drawLaneLines(painter, s);
+  //  drawLaneLines(painter, s);
 
-    // if (s->scene.longitudinal_control) {
-      auto leads = (*s->sm)["modelV2"].getModelV2().getLeadsV3();
-      if (leads[0].getProb() > .5) {
-        drawLead(painter, leads[0], s->scene.lead_vertices[0]);
-      }
-      if (leads[1].getProb() > .5 && (std::abs(leads[1].getX()[0] - leads[0].getX()[0]) > 3.0)) {
-        drawLead(painter, leads[1], s->scene.lead_vertices[1]);
-      }
-    }
-  // }
+  //   if (s->scene.longitudinal_control) {
+  //     auto leads = (*s->sm)["modelV2"].getModelV2().getLeadsV3();
+  //     if (leads[0].getProb() > .5) {
+  //       drawLead(painter, leads[0], s->scene.lead_vertices[0]);
+  //     }
+  //     if (leads[1].getProb() > .5 && (std::abs(leads[1].getX()[0] - leads[0].getX()[0]) > 3.0)) {
+  //       drawLead(painter, leads[1], s->scene.lead_vertices[1]);
+  //     }
+  //   }
+   }
 
   double cur_draw_t = millis_since_boot();
   double dt = cur_draw_t - prev_draw_t;
