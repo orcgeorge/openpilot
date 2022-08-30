@@ -1,16 +1,20 @@
 #include "selfdrive/camerad/cameras/camera_webcam.h"
 
 #include <unistd.h>
-
+#include <cstdlib>
 #include <cassert>
 #include <cstring>
-
+#include <vector>
+#include <chrono>
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wundefined-inline"
 #include <opencv2/core.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/opencv.hpp>
 #include <opencv2/videoio.hpp>
+#include <opencv2/core/cuda.hpp>
+#include <opencv2/cudawarping.hpp>
+
 #pragma clang diagnostic pop
 
 #include "selfdrive/common/clutil.h"
@@ -19,11 +23,11 @@
 #include "selfdrive/common/util.h"
 
 // id of the video capturing device
-const int ROAD_CAMERA_ID = util::getenv("ROADCAM_ID", 1);
-const int DRIVER_CAMERA_ID = util::getenv("DRIVERCAM_ID", 2);
+const int ROAD_CAMERA_ID = util::getenv("ROADCAM_ID", 2);
+const int DRIVER_CAMERA_ID = util::getenv("DRIVERCAM_ID", 4);
 
-#define FRAME_WIDTH  1164
-#define FRAME_HEIGHT 874
+#define FRAME_WIDTH  1928
+#define FRAME_HEIGHT 1208
 #define FRAME_WIDTH_FRONT  1152
 #define FRAME_HEIGHT_FRONT 864
 
@@ -75,15 +79,26 @@ void run_camera(CameraState *s, cv::VideoCapture &video_cap, float *ts) {
   const cv::Mat transform = cv::Mat(3, 3, CV_32F, ts);
   uint32_t frame_id = 0;
   size_t buf_idx = 0;
+ //cv::cuda::Stream Stream;
+  //  double firsr_time = millis_since_boot();  
 
   while (!do_exit) {
     cv::Mat frame_mat, transformed_mat;
     video_cap >> frame_mat;
-    if (frame_mat.empty()) continue;
 
-    cv::warpPerspective(frame_mat, transformed_mat, transform, size, cv::INTER_LINEAR, cv::BORDER_CONSTANT, 0);
+    cv::cuda::GpuMat gframe_mat, gtransformed_mat;
+    gframe_mat.upload(frame_mat);
+    
+    // printf("first time %.2f \r\n",millis_since_boot()-firsr_time);
+    if (frame_mat.empty()) continue;
+    
+    //cv::warpPerspective(frame_mat, transformed_mat, transform, size, cv::INTER_LINEAR, cv::BORDER_CONSTANT, 0);
+    cv::cuda::warpPerspective(gframe_mat, gtransformed_mat,transform, size, cv::INTER_LINEAR, cv::BORDER_CONSTANT, 0, cv::cuda::Stream::Null());
+    // printf("second time %.2f \r\n",millis_since_boot()-firsr_time);
+    gtransformed_mat.download(transformed_mat);
 
     s->buf.camera_bufs_metadata[buf_idx] = {.frame_id = frame_id};
+    s->buf.camera_bufs_metadata[buf_idx].timestamp_sof=(uint64_t)(s->buf.camera_bufs_metadata[buf_idx].frame_id * 0.05 * 1e9);
 
     auto &buf = s->buf.camera_bufs[buf_idx];
     int transformed_size = transformed_mat.total() * transformed_mat.elemSize();
@@ -93,6 +108,8 @@ void run_camera(CameraState *s, cv::VideoCapture &video_cap, float *ts) {
 
     ++frame_id;
     buf_idx = (buf_idx + 1) % FRAME_BUF_COUNT;
+    //  printf("third time %.2f \r\n",millis_since_boot()-firsr_time);
+
   }
 }
 
@@ -108,8 +125,8 @@ static void road_camera_thread(CameraState *s) {
   // cv::Rect roi_rear(160, 0, 960, 720);
 
   // transforms calculation see tools/webcam/warp_vis.py
-  float ts[9] = {1.50330396, 0.0, -59.40969163,
-                  0.0, 1.50330396, 76.20704846,
+  float ts[9] = {4.37444934, 0.0,  -902.43171806,
+                  0.0, 4.37444934, -445.86784141,
                   0.0, 0.0, 1.0};
   // if camera upside down:
   // float ts[9] = {-1.50330396, 0.0, 1223.4,

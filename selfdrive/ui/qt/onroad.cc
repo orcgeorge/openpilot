@@ -54,7 +54,7 @@ void OnroadWindow::updateState(const UIState &s) {
     } else if (alert.type == "controlsUnresponsivePermanent") {
       bgColor = bg_colors[STATUS_DISENGAGED];
     }
-    alerts->updateAlert(alert, bgColor);
+    // alerts->updateAlert(alert, bgColor);
   }
 
   hud->updateState(s);
@@ -242,10 +242,10 @@ void OnroadHud::paintEvent(QPaintEvent *event) {
   }
 
   // dm icon
-  if (!hideDM) {
+  // if (!hideDM) {
     drawIcon(p, radius / 2 + (bdr_s * 2), rect().bottom() - footer_h / 2,
              dm_img, QColor(0, 0, 0, 70), dmActive ? 1.0 : 0.2);
-  }
+  // }
 }
 
 void OnroadHud::drawText(QPainter &p, int x, int y, const QString &text, int alpha) {
@@ -385,7 +385,7 @@ void NvgWindow::paintGL() {
 
     drawLaneLines(painter, s);
 
-    if (s->scene.longitudinal_control) {
+    // if (s->scene.longitudinal_control) {
       auto leads = (*s->sm)["modelV2"].getModelV2().getLeadsV3();
       if (leads[0].getProb() > .5) {
         drawLead(painter, leads[0], s->scene.lead_vertices[0]);
@@ -394,7 +394,7 @@ void NvgWindow::paintGL() {
         drawLead(painter, leads[1], s->scene.lead_vertices[1]);
       }
     }
-  }
+  // }
 
   double cur_draw_t = millis_since_boot();
   double dt = cur_draw_t - prev_draw_t;
